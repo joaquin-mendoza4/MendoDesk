@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>AnyMendo – Visor remoto</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; background: #14161a; overflow: hidden;
+               font-family: "Segoe UI", sans-serif; color: #e6e6e6; }
+
+  #login {
+    position: absolute; inset: 0; display: flex; align-items: center;
+    justify-content: center; flex-direction: column; gap: 14px; z-index: 10;
+    background: #14161a;
+  }
+  #login h1 { font-size: 28px; font-weight: 600; }
+  #login h1 span { color: #4da3ff; }
+  #login input {
+    padding: 10px 14px; font-size: 16px; border-radius: 8px; border: 1px solid #3a3f47;
+    background: #1e2128; color: #fff; width: 260px; text-align: center;
+  }
+  #login button {
+    padding: 10px 28px; font-size: 16px; border-radius: 8px; border: none;
+    background: #2f7bd9; color: #fff; cursor: pointer;
+  }
+  #login button:hover { background: #4da3ff; }
+  #loginError { color: #ff6b6b; min-height: 20px; font-size: 14px; }
+
+  #bar {
+    position: absolute; top: 0; left: 0; right: 0; height: 34px; z-index: 5;
+    display: none; align-items: center; gap: 14px; padding: 0 12px;
+    background: rgba(20,22,26,.92); font-size: 13px;
+    transform: translateY(-30px); transition: transform .2s;
+  }
+  #bar:hover, #bar.pinned { transform: translateY(0); }
+  #bar .dot { color: #3ddc84; }
+  #bar button {
+    background: #2a2e36; color: #ddd; border: 1px solid #3a3f47;
+    border-radius: 6px; padding: 3px 10px; cursor: pointer; font-size: 12px;
+  }
+  #bar button:hover { background: #3a3f47; }
+  #bar .spacer { flex: 1; }
+
+  #stage { position: absolute; inset: 0; display: none; cursor: crosshair; }
+  #screen { position: absolute; image-rendering: auto; }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <h1>Any<span>Mendo</span></h1>
+  <div>Ingresá la contraseña del equipo remoto</div>
+  <input id="password" type="password" placeholder="Contraseña" autofocus>
+  <button id="connectBtn">Conectar</button>
+  <div id="loginError"></div>
+</div>
+
+<div id="bar">
+  <span class="dot">●</span><span id="info">Conectado</span>
+  <span class="spacer"></span>
+  <span id="fps"></span>
+  <button id="fsBtn">Pantalla completa</button>
+  <button id="dcBtn">Desconectar</button>
+</div>
+
+<div id="stage"><canvas id="screen"></canvas></div>
+
+<script>
+(() => {
+  const login = document.getElementById('login');
+  const loginError = document.getElementById('loginError');
+  const passwordInput = document.getElementById('password');
+  const bar = document.getElementById('bar');
+  const stage = document.getElementById('stage');
+  const canvas = document.getElementById('screen');
+  const ctx = canvas.getContext('2d');
+  const fpsLabel = document.getElementById('fps');
+
+  let ws = null, connected = false;
+  let remoteW = 0, remoteH = 0;
+  let frames = 0;
+  let wheelAccX = 0, wheelAccY = 0;
+  let lastMove = 0;
+
+  function send(obj) {
+    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(obj));
+  }
+
+  function layout() {
+    if (!remoteW) return;
+    const cw = stage.clientWidth, ch = stage.clientHeight;
+    const scale = Math.min(cw / remoteW, ch / remoteH);
+    const w = remoteW * scale, h = remoteH * scale;
+    canvas.style.width = w + 'px';
+    canvas.style.height = h + 'px';
+    canvas.style.left = ((cw - w) / 2) + 'px';
+    canvas.style.top = ((ch - h) / 2) + 'px';
+  }
+  window.addEventListener('resize', layout);
+
+  function toRemote(e) {
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left) / r.width;
+    const y = (e.clientY - r.top) / r.height;
+    return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
+  }
+
+  function connect() {
+    loginError.textContent = '';
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => send({ password: passwordInput.value });
+
+    ws.onmessage = async (ev) => {
+      if (typeof ev.data === 'string') {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'ok') {
+          remoteW = msg.w; remoteH = msg.h;
+          canvas.width = remoteW; canvas.height = remoteH;
+          connected = true;
+          login.style.display = 'none';
+          stage.style.display = 'block';
+          bar.style.display = 'flex';
+          bar.classList.add('pinned');
+          setTimeout(() => bar.classList.remove('pinned'), 2500);
+          layout();
+        } else if (msg.type === 'error') {
+          loginError.textContent = msg.message || 'Error de conexión';
+        }
+        return;
+      }
+      // Frame JPEG binario
+      const bmp = await createImageBitmap(new Blob([ev.data], { type: 'image/jpeg' }));
+      ctx.drawImage(bmp, 0, 0, remoteW, remoteH);
+      bmp.close();
+      frames++;
+    };
+
+    ws.onclose = () => {
+      if (connected) {
+        connected = false;
+        stage.style.display = 'none';
+        bar.style.display = 'none';
+        login.style.display = 'flex';
+        loginError.textContent = 'Conexión cerrada.';
+      } else if (!loginError.textContent) {
+        loginError.textContent = 'No se pudo conectar al equipo remoto.';
+      }
+    };
+  }
+
+  document.getElementById('connectBtn').addEventListener('click', connect);
+  passwordInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') connect();
+  });
+
+  document.getElementById('dcBtn').addEventListener('click', () => ws && ws.close());
+  document.getElementById('fsBtn').addEventListener('click', () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen();
+  });
+
+  setInterval(() => {
+    if (connected) fpsLabel.textContent = frames + ' fps';
+    frames = 0;
+  }, 1000);
+
+  // ---- mouse ----
+  stage.addEventListener('mousemove', (e) => {
+    if (!connected) return;
+    const now = performance.now();
+    if (now - lastMove < 15) return;   // ~60 ev/s máx.
+    lastMove = now;
+    const p = toRemote(e);
+    send({ t: 'mv', x: p.x, y: p.y });
+  });
+  stage.addEventListener('mousedown', (e) => {
+    if (!connected) return;
+    e.preventDefault();
+    const p = toRemote(e);
+    send({ t: 'mv', x: p.x, y: p.y });
+    send({ t: 'md', b: e.button });
+  });
+  stage.addEventListener('mouseup', (e) => {
+    if (!connected) return;
+    e.preventDefault();
+    send({ t: 'mu', b: e.button });
+  });
+  stage.addEventListener('contextmenu', (e) => e.preventDefault());
+  stage.addEventListener('wheel', (e) => {
+    if (!connected) return;
+    e.preventDefault();
+    wheelAccX += e.deltaX; wheelAccY += e.deltaY;
+    const stepsX = Math.trunc(wheelAccX / 100);
+    const stepsY = Math.trunc(wheelAccY / 100);
+    if (stepsX || stepsY) {
+      wheelAccX -= stepsX * 100; wheelAccY -= stepsY * 100;
+      send({ t: 'wh', dx: stepsX, dy: -stepsY });
+    }
+  }, { passive: false });
+
+  // ---- teclado ----
+  window.addEventListener('keydown', (e) => {
+    if (!connected) return;
+    e.preventDefault();
+    if (e.repeat) return; // el repeat lo genera el equipo remoto
+    send({ t: 'kd', k: e.key });
+  });
+  window.addEventListener('keyup', (e) => {
+    if (!connected) return;
+    e.preventDefault();
+    send({ t: 'ku', k: e.key });
+  });
+  window.addEventListener('blur', () => { if (connected) send({ t: 'ra' }); });
+})();
+</script>
+</body>
+</html>
