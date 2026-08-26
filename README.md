@@ -5,7 +5,7 @@ pantalla de tu notebook desde tu PC usando solo el navegador.
 
 ## Cómo funciona
 
-- **En la notebook** (el equipo a controlar) corre la app **AnyMendo** (`host.py`).
+- **En la notebook** (el equipo a controlar) corre la app **MendDesk** (`host.py`).
   Captura la pantalla, la transmite por WebSocket y aplica los movimientos de
   mouse y teclas que le llegan.
 - **En tu PC** no se instala nada: abrís el navegador (Chrome/Edge/Firefox) en
@@ -34,10 +34,10 @@ pantalla de tu notebook desde tu PC usando solo el navegador.
 
 ## Inicio automático
 
-En la ventana de AnyMendo marcá la casilla
-**"Iniciar AnyMendo automáticamente al encender el equipo"**.
+En la ventana de MendDesk marcá la casilla
+**"Iniciar MendDesk automáticamente al encender el equipo"**.
 Eso registra la app en el inicio de Windows (registro `HKCU\...\Run`); al
-prender la notebook, AnyMendo arranca minimizado con el servidor ya activo.
+prender la notebook, MendDesk arranca minimizado con el servidor ya activo.
 Desmarcá la casilla para quitarlo.
 
 ## Notas y límites
