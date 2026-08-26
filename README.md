@@ -1,4 +1,4 @@
-# AnyMendo
+# MendoDesk
 
 Escritorio remoto simple estilo AnyDesk para tu red local: ves y controlás la
 pantalla de tu notebook desde tu PC usando solo el navegador.
